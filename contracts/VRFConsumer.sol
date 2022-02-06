@@ -11,7 +11,7 @@ interface IKenshi {
     ) external returns (bool);
 }
 
-abstract contract Consumer {
+abstract contract VRFConsumer {
     /* Request tracking */
     mapping(uint256 => bool) _requests;
     uint256 private _requestId;
@@ -74,7 +74,7 @@ abstract contract Consumer {
         IKenshi(_kenshiAddr).approveAndCall(
             _coordinatorAddr,
             _approve,
-            abi.encode(_publicKey, currentId)
+            abi.encode(currentId)
         );
         return currentId;
     }
