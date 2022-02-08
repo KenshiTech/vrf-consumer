@@ -17,11 +17,13 @@ const fast = getFastVerifyComponents(keypair.public_key.key, proof, alpha);
 
 describe("VRF", function () {
   it("Verify should work", async function () {
-    const VRF = await ethers.getContractFactory("TestHelperVRF");
+    const VRF = await ethers.getContractFactory("VRFUtils");
     const vrf = await VRF.deploy();
     await vrf.deployed();
 
-    const isValid = await vrf.verify(
+    const verify = vrf["verify(uint256[2],uint256[4],bytes)"];
+
+    const isValid = await verify(
       [keypair.public_key.x.toString(), keypair.public_key.y.toString()],
       [Gamma.x.toString(), Gamma.y.toString(), c.toString(), s.toString()],
       Buffer.from(alpha, "hex")
@@ -31,11 +33,14 @@ describe("VRF", function () {
   });
 
   it("Fast verify should work", async function () {
-    const VRF = await ethers.getContractFactory("TestHelperVRF");
+    const VRF = await ethers.getContractFactory("VRFUtils");
     const vrf = await VRF.deploy();
     await vrf.deployed();
 
-    const isFastValid = await vrf.fastVerify(
+    const fastVerify =
+      vrf["fastVerify(uint256[2],uint256[4],bytes,uint256[2],uint256[4])"];
+
+    const isFastValid = await fastVerify(
       [keypair.public_key.x.toString(), keypair.public_key.y.toString()],
       [Gamma.x.toString(), Gamma.y.toString(), c.toString(), s.toString()],
       Buffer.from(alpha, "hex"),
@@ -46,12 +51,34 @@ describe("VRF", function () {
     expect(isFastValid).to.be.true;
   });
 
-  it("Fast verify params should compute", async function () {
-    const VRF = await ethers.getContractFactory("TestHelperVRF");
+  it("Fast verify should fail with invalid data", async function () {
+    const VRF = await ethers.getContractFactory("VRFUtils");
     const vrf = await VRF.deploy();
     await vrf.deployed();
 
-    const components = await vrf.computeFastVerifyParams(
+    const fastVerify =
+      vrf["fastVerify(uint256[2],uint256[4],bytes,uint256[2],uint256[4])"];
+
+    const isFastValid = await fastVerify(
+      [keypair.public_key.x.toString(), keypair.public_key.y.toString()],
+      [Gamma.x.toString(), Gamma.y.toString(), c.toString(), s.toString()],
+      Buffer.from(alpha + "dummy", "hex"),
+      [fast.uX, fast.uY],
+      [fast.sHX, fast.sHY, fast.cGX, fast.cGY]
+    );
+
+    expect(isFastValid).to.be.false;
+  });
+
+  it("Fast verify params should compute", async function () {
+    const VRF = await ethers.getContractFactory("VRFUtils");
+    const vrf = await VRF.deploy();
+    await vrf.deployed();
+
+    const computeFastVerifyParams =
+      vrf["computeFastVerifyParams(uint256[2],uint256[4],bytes)"];
+
+    const components = await computeFastVerifyParams(
       [keypair.public_key.x.toString(), keypair.public_key.y.toString()],
       [Gamma.x.toString(), Gamma.y.toString(), c.toString(), s.toString()],
       Buffer.from(alpha, "hex")

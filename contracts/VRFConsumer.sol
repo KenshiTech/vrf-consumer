@@ -1,14 +1,26 @@
 //SPDX-License-Identifier: Unlicense
 pragma solidity ^0.8.11;
 
-import "./lib/VRF.sol";
-
 interface IKenshi {
     function approveAndCall(
         address spender,
         uint256 value,
         bytes memory data
     ) external returns (bool);
+}
+
+interface IVRFUtils {
+    function fastVerify(
+        uint256[4] memory proof,
+        bytes memory message,
+        uint256[2] memory uPoint,
+        uint256[4] memory vComponents
+    ) external view returns (bool);
+
+    function gammaToHash(uint256 _gammaX, uint256 _gammaY)
+        external
+        pure
+        returns (bytes32);
 }
 
 abstract contract VRFConsumer {
@@ -20,48 +32,56 @@ abstract contract VRFConsumer {
     uint256 private _approve;
     address private _kenshiAddr;
     address private _coordinatorAddr;
+    address private _vrfUtilsAddr;
+
+    IKenshi private _kenshi;
+    IVRFUtils private _utils;
 
     /* VRF options */
     bool private _shouldVerify;
-    uint256[2] private _publicKey;
 
     constructor() {
         _approve = (1e13 * 1e18) / 1e2;
     }
 
-    /**
-     * @dev Sets the public key used for VRF verification.
-     */
-    function setPublicKey(bytes memory publicKey) internal {
-        _publicKey = VRF.decodePoint(publicKey);
-    }
-
-    /**
-     * @dev Get the public key used for VRF verification.
-     */
-    function getPublicKey() internal view returns (bytes memory) {
-        return VRF.encodePoint(_publicKey[0], _publicKey[1]);
-    }
-
-    /**
-     * @dev Sets if the received random number should be verified.
-     */
-    function setShouldVerify(bool shouldVerify) internal {
+    function setupVRF(
+        address coordinatorAddr,
+        address vrfUtilsAddr,
+        address kenshiAddr,
+        bool shouldVerify
+    ) internal {
+        _coordinatorAddr = coordinatorAddr;
+        _utils = IVRFUtils(vrfUtilsAddr);
+        _kenshi = IKenshi(kenshiAddr);
         _shouldVerify = shouldVerify;
     }
 
     /**
      * @dev Sets the Kenshi VRF coordinator address.
      */
-    function setCoordinatorAddr(address coordinatorAddr) internal {
+    function setVRFCoordinatorAddr(address coordinatorAddr) internal {
         _coordinatorAddr = coordinatorAddr;
+    }
+
+    /**
+     * @dev Sets the Kenshi VRF verifier address.
+     */
+    function setVRFUtilsAddr(address vrfUtilsAddr) internal {
+        _utils = IVRFUtils(vrfUtilsAddr);
     }
 
     /**
      * @dev Sets the Kenshi token address.
      */
-    function setKenshiAddr(address kenshiAddr) internal {
-        _kenshiAddr = kenshiAddr;
+    function setVRFKenshiAddr(address kenshiAddr) internal {
+        _kenshi = IKenshi(kenshiAddr);
+    }
+
+    /**
+     * @dev Sets if the received random number should be verified.
+     */
+    function setVRFShouldVerify(bool shouldVerify) internal {
+        _shouldVerify = shouldVerify;
     }
 
     /**
@@ -71,7 +91,7 @@ abstract contract VRFConsumer {
      */
     function requestRandomness() internal returns (uint256) {
         uint256 currentId = _requestId++;
-        IKenshi(_kenshiAddr).approveAndCall(
+        _kenshi.approveAndCall(
             _coordinatorAddr,
             _approve,
             abi.encode(currentId)
@@ -90,10 +110,10 @@ abstract contract VRFConsumer {
      * @dev Called by the VRF Coordinator.
      */
     function onRandomnessReady(
-        uint256[4] memory _proof,
-        bytes memory _message,
-        uint256[2] memory _uPoint,
-        uint256[4] memory _vComponents,
+        uint256[4] memory proof,
+        bytes memory message,
+        uint256[2] memory uPoint,
+        uint256[4] memory vComponents,
         uint256 requestId
     ) external {
         require(
@@ -101,12 +121,17 @@ abstract contract VRFConsumer {
             "Consumer: Only Coordinator can fulfill"
         );
         if (_shouldVerify) {
-            bool isValid = fastVerify(_proof, _message, _uPoint, _vComponents);
+            bool isValid = _utils.fastVerify(
+                proof,
+                message,
+                uPoint,
+                vComponents
+            );
             require(isValid, "Consumer: Proof not valid");
         }
-        bytes32 beta = gammaToHash(_proof[0], _proof[1]);
+        bytes32 beta = _utils.gammaToHash(proof[0], proof[1]);
         uint256 randomness = uint256(beta);
-        emit RandomnessFulfilled(requestId, randomness, _proof, _message);
+        emit RandomnessFulfilled(requestId, randomness, proof, message);
         fulfillRandomness(requestId, randomness);
     }
 
@@ -116,55 +141,4 @@ abstract contract VRFConsumer {
     function fulfillRandomness(uint256 requestId, uint256 randomness)
         internal
         virtual;
-
-    /* VRF functions */
-
-    function decodeProof(bytes memory _proof)
-        public
-        pure
-        returns (uint256[4] memory)
-    {
-        return VRF.decodeProof(_proof);
-    }
-
-    function decodePoint(bytes memory _point)
-        public
-        pure
-        returns (uint256[2] memory)
-    {
-        return VRF.decodePoint(_point);
-    }
-
-    function computeFastVerifyParams(
-        uint256[4] memory _proof,
-        bytes memory _message
-    ) public view returns (uint256[2] memory, uint256[4] memory) {
-        return VRF.computeFastVerifyParams(_publicKey, _proof, _message);
-    }
-
-    function verify(uint256[4] memory _proof, bytes memory _message)
-        public
-        view
-        returns (bool)
-    {
-        return VRF.verify(_publicKey, _proof, _message);
-    }
-
-    function fastVerify(
-        uint256[4] memory _proof,
-        bytes memory _message,
-        uint256[2] memory _uPoint,
-        uint256[4] memory _vComponents
-    ) public view returns (bool) {
-        return
-            VRF.fastVerify(_publicKey, _proof, _message, _uPoint, _vComponents);
-    }
-
-    function gammaToHash(uint256 _gammaX, uint256 _gammaY)
-        public
-        pure
-        returns (bytes32)
-    {
-        return VRF.gammaToHash(_gammaX, _gammaY);
-    }
 }
