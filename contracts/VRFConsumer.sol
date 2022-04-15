@@ -23,6 +23,12 @@ interface IVRFUtils {
         returns (bytes32);
 }
 
+interface ICoordinator {
+    function getKenshiAddr() external view returns (address);
+
+    function getVrfUtilsAddr() external view returns (address);
+}
+
 abstract contract VRFConsumer {
     /* Request tracking */
     mapping(uint256 => bool) _requests;
@@ -30,37 +36,54 @@ abstract contract VRFConsumer {
 
     /* Kenshi related */
     uint256 private _approve;
-    address private _kenshiAddr;
-    address private _coordinatorAddr;
-    address private _vrfUtilsAddr;
 
     IKenshi private _kenshi;
     IVRFUtils private _utils;
+    ICoordinator private _coordinator;
 
     /* VRF options */
     bool private _shouldVerify;
+    bool private _silent;
 
     constructor() {
         _approve = (1e13 * 1e18) / 1e2;
     }
 
+    /**
+     * @dev Setup various VRF related settings:
+     * - Coordinator Address: Kenshi VRF coordinator address
+     * - Should Verify: Set if the received randomness should be verified
+     * - Silent: Set if an event should be emitted on randomness delivery
+     */
     function setupVRF(
         address coordinatorAddr,
-        address vrfUtilsAddr,
-        address kenshiAddr,
-        bool shouldVerify
+        bool shouldVerify,
+        bool silent
     ) internal {
-        _coordinatorAddr = coordinatorAddr;
-        _utils = IVRFUtils(vrfUtilsAddr);
-        _kenshi = IKenshi(kenshiAddr);
+        _coordinator = ICoordinator(coordinatorAddr);
+
+        address _vrfUtilsAddr = _coordinator.getVrfUtilsAddr();
+        address _kenshiAddr = _coordinator.getKenshiAddr();
+
+        _utils = IVRFUtils(_vrfUtilsAddr);
+        _kenshi = IKenshi(_kenshiAddr);
+
         _shouldVerify = shouldVerify;
+        _silent = silent;
+    }
+
+    /**
+     * @dev Setup VRF, short version.
+     */
+    function setupVRF(address coordinatorAddr) internal {
+        setupVRF(coordinatorAddr, false, false);
     }
 
     /**
      * @dev Sets the Kenshi VRF coordinator address.
      */
     function setVRFCoordinatorAddr(address coordinatorAddr) internal {
-        _coordinatorAddr = coordinatorAddr;
+        _coordinator = ICoordinator(coordinatorAddr);
     }
 
     /**
@@ -85,6 +108,13 @@ abstract contract VRFConsumer {
     }
 
     /**
+     * @dev Sets if should emit an event once the randomness is fulfilled.
+     */
+    function setVRFIsSilent(bool silent) internal {
+        _silent = silent;
+    }
+
+    /**
      * @dev Request a random number.
      *
      * @return {requestId} Use to map received random numbers to requests.
@@ -92,7 +122,7 @@ abstract contract VRFConsumer {
     function requestRandomness() internal returns (uint256) {
         uint256 currentId = _requestId++;
         _kenshi.approveAndCall(
-            _coordinatorAddr,
+            address(_coordinator),
             _approve,
             abi.encode(currentId)
         );
@@ -117,9 +147,10 @@ abstract contract VRFConsumer {
         uint256 requestId
     ) external {
         require(
-            msg.sender == _coordinatorAddr,
+            msg.sender == address(_coordinator),
             "Consumer: Only Coordinator can fulfill"
         );
+
         if (_shouldVerify) {
             bool isValid = _utils.fastVerify(
                 proof,
@@ -129,9 +160,14 @@ abstract contract VRFConsumer {
             );
             require(isValid, "Consumer: Proof not valid");
         }
+
         bytes32 beta = _utils.gammaToHash(proof[0], proof[1]);
         uint256 randomness = uint256(beta);
-        emit RandomnessFulfilled(requestId, randomness, proof, message);
+
+        if (!_silent) {
+            emit RandomnessFulfilled(requestId, randomness, proof, message);
+        }
+
         fulfillRandomness(requestId, randomness);
     }
 
