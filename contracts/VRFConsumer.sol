@@ -1,14 +1,6 @@
 //SPDX-License-Identifier: Unlicense
 pragma solidity ^0.8.11;
 
-interface IKenshi {
-    function approveAndCall(
-        address spender,
-        uint256 value,
-        bytes memory data
-    ) external returns (bool);
-}
-
 interface IVRFUtils {
     function fastVerify(
         uint256[4] memory proof,
@@ -24,20 +16,13 @@ interface IVRFUtils {
 }
 
 interface ICoordinator {
-    function getKenshiAddr() external view returns (address);
+    function requestRandomness() external returns (uint256);
 
     function getVrfUtilsAddr() external view returns (address);
 }
 
 abstract contract VRFConsumer {
-    /* Request tracking */
-    mapping(uint256 => bool) _requests;
-    uint256 private _requestId;
-
-    /* Kenshi related */
-    uint256 private _approve;
-
-    IKenshi private _kenshi;
+    /* Contracts */
     IVRFUtils private _utils;
     ICoordinator private _coordinator;
 
@@ -45,9 +30,7 @@ abstract contract VRFConsumer {
     bool private _shouldVerify;
     bool private _silent;
 
-    constructor() {
-        _approve = (1e13 * 1e18) / 1e2;
-    }
+    constructor() {}
 
     /**
      * @dev Setup various VRF related settings:
@@ -63,10 +46,7 @@ abstract contract VRFConsumer {
         _coordinator = ICoordinator(coordinatorAddr);
 
         address _vrfUtilsAddr = _coordinator.getVrfUtilsAddr();
-        address _kenshiAddr = _coordinator.getKenshiAddr();
-
         _utils = IVRFUtils(_vrfUtilsAddr);
-        _kenshi = IKenshi(_kenshiAddr);
 
         _shouldVerify = shouldVerify;
         _silent = silent;
@@ -94,13 +74,6 @@ abstract contract VRFConsumer {
     }
 
     /**
-     * @dev Sets the Kenshi token address.
-     */
-    function setVRFKenshiAddr(address kenshiAddr) internal {
-        _kenshi = IKenshi(kenshiAddr);
-    }
-
-    /**
      * @dev Sets if the received random number should be verified.
      */
     function setVRFShouldVerify(bool shouldVerify) internal {
@@ -120,13 +93,7 @@ abstract contract VRFConsumer {
      * @return {requestId} Use to map received random numbers to requests.
      */
     function requestRandomness() internal returns (uint256) {
-        uint256 currentId = _requestId++;
-        _kenshi.approveAndCall(
-            address(_coordinator),
-            _approve,
-            abi.encode(currentId)
-        );
-        return currentId;
+        return _coordinator.requestRandomness();
     }
 
     event RandomnessFulfilled(
@@ -158,7 +125,7 @@ abstract contract VRFConsumer {
                 uPoint,
                 vComponents
             );
-            require(isValid, "Consumer: Proof not valid");
+            require(isValid, "Consumer: Proof is not valid");
         }
 
         bytes32 beta = _utils.gammaToHash(proof[0], proof[1]);
